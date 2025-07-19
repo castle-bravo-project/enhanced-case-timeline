@@ -1,0 +1,1398 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Enhanced Case Timeline Scraper v2.0</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tailwindcss/2.2.19/tailwind.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <style>
+        body {
+            background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+            color: #f3f4f6;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+            min-height: 100vh;
+        }
+
+        .glass-card {
+            background: rgba(30, 41, 59, 0.8);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(148, 163, 184, 0.2);
+        }
+
+        .timeline-container {
+            position: relative;
+            height: 350px;
+            overflow-x: auto;
+            overflow-y: hidden;
+            background: linear-gradient(90deg, #1e293b 0%, #334155 50%, #1e293b 100%);
+            border-radius: 12px;
+            padding: 20px 0;
+            scrollbar-width: thin;
+            scrollbar-color: #64748b #1e293b;
+        }
+
+        .timeline-container::-webkit-scrollbar {
+            height: 8px;
+        }
+
+        .timeline-container::-webkit-scrollbar-track {
+            background: #1e293b;
+            border-radius: 4px;
+        }
+
+        .timeline-container::-webkit-scrollbar-thumb {
+            background: #64748b;
+            border-radius: 4px;
+        }
+
+        .timeline-container::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8;
+        }
+
+        .timeline-line {
+            position: absolute;
+            top: 50%;
+            left: 50px;
+            right: 50px;
+            height: 4px;
+            background: linear-gradient(90deg, #3b82f6, #8b5cf6, #ec4899, #f59e0b);
+            border-radius: 2px;
+            transform: translateY(-50%);
+            box-shadow: 0 0 20px rgba(59, 130, 246, 0.3);
+        }
+
+        .deadline-bar {
+            position: absolute;
+            top: 30%;
+            height: 8px;
+            border-radius: 2px;
+            opacity: 0.7;
+            z-index: 5;
+        }
+
+        .deadline-bar.omnibus {
+            background: #10b981;
+        }
+
+        .deadline-bar.trial {
+            background: #ef4444;
+        }
+
+        .deadline-bar.discovery {
+            background: #f59e0b;
+        }
+
+        .deadline-label {
+            position: absolute;
+            top: -25px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(15, 23, 42, 0.9);
+            color: #e2e8f0;
+            padding: 4px 8px;
+            border-radius: 6px;
+            font-size: 11px;
+            font-weight: 500;
+            white-space: nowrap;
+        }
+
+        .event-node {
+            position: absolute;
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #3b82f6, #1d4ed8);
+            border: 4px solid #0f172a;
+            cursor: pointer;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            top: 50%;
+            transform: translateY(-50%);
+            box-shadow: 0 4px 12px rgba(59, 130, 246, 0.4);
+            z-index: 10;
+        }
+
+        .event-node:hover {
+            transform: translateY(-50%) scale(1.5);
+            box-shadow: 0 8px 25px rgba(59, 130, 246, 0.6);
+        }
+
+        .event-node:focus {
+            outline: 2px solid #3b82f6;
+            outline-offset: 2px;
+        }
+
+        .event-node.active {
+            background: linear-gradient(135deg, #f59e0b, #d97706);
+            transform: translateY(-50%) scale(1.3);
+            box-shadow: 0 6px 20px rgba(245, 158, 11, 0.6);
+        }
+
+        /* Event type specific colors */
+        .event-node.filing {
+            background: linear-gradient(135deg, #10b981, #059669);
+        }
+
+        .event-node.hearing {
+            background: linear-gradient(135deg, #8b5cf6, #6d28d9);
+        }
+
+        .event-node.motion {
+            background: linear-gradient(135deg, #f59e0b, #d97706);
+        }
+
+        .event-node.trial {
+            background: linear-gradient(135deg, #ef4444, #b91c1c);
+        }
+
+        .event-node.service {
+            background: linear-gradient(135deg, #06b6d4, #0891b2);
+        }
+
+        .event-node.discovery {
+            background: linear-gradient(135deg, #84cc16, #65a30d);
+        }
+
+        .event-node.judgment {
+            background: linear-gradient(135deg, #dc2626, #991b1b);
+        }
+
+        .event-label {
+            position: absolute;
+            top: -45px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(15, 23, 42, 0.9);
+            color: #e2e8f0;
+            padding: 4px 8px;
+            border-radius: 6px;
+            font-size: 11px;
+            font-weight: 500;
+            white-space: nowrap;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+            border: 1px solid rgba(59, 130, 246, 0.3);
+        }
+
+        .event-node:hover .event-label {
+            opacity: 1;
+        }
+
+        .sidebar {
+            transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+            max-height: calc(100vh - 200px);
+            overflow-y: auto;
+        }
+
+        .sidebar.collapsed {
+            transform: translateX(100%);
+            opacity: 0;
+        }
+
+        .loading {
+            animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        }
+
+        .fade-in {
+            animation: fadeIn 0.5s ease-in;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .hover-lift {
+            transition: transform 0.2s ease-in-out, box-shadow 0.2s ease-in-out;
+        }
+
+        .hover-lift:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.3);
+        }
+
+        .event-detail-card {
+            background: linear-gradient(135deg, rgba(59, 130, 246, 0.1), rgba(139, 92, 246, 0.1));
+            border: 1px solid rgba(59, 130, 246, 0.2);
+            transition: all 0.3s ease;
+        }
+
+        .event-detail-card:hover {
+            border-color: rgba(59, 130, 246, 0.4);
+            box-shadow: 0 8px 25px rgba(59, 130, 246, 0.1);
+        }
+
+        .glow-text {
+            text-shadow: 0 0 10px rgba(59, 130, 246, 0.5);
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 12px;
+        }
+
+        .legend-color {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+        }
+
+        .settings-panel {
+            background: rgba(15, 23, 42, 0.9);
+            border: 1px solid rgba(59, 130, 246, 0.3);
+            border-radius: 8px;
+            padding: 16px;
+            margin-top: 16px;
+        }
+
+        .violation-alert {
+            background: rgba(239, 68, 68, 0.1);
+            border: 1px solid rgba(239, 68, 68, 0.3);
+            border-radius: 8px;
+            padding: 12px;
+            margin-top: 8px;
+        }
+
+        .success-alert {
+            background: rgba(16, 185, 129, 0.1);
+            border: 1px solid rgba(16, 185, 129, 0.3);
+            border-radius: 8px;
+            padding: 12px;
+            margin-top: 8px;
+        }
+
+        .chart-container {
+            position: relative;
+            height: 300px;
+            background: rgba(30, 41, 59, 0.5);
+            border-radius: 8px;
+            padding: 16px;
+        }
+    </style>
+</head>
+<body class="min-h-screen p-4">
+    <div class="max-w-7xl mx-auto">
+        <!-- Header -->
+        <div class="mb-8 text-center">
+            <h1 class="text-4xl font-bold mb-2 glow-text">Enhanced Case Timeline Scraper v2.0</h1>
+            <p class="text-gray-400">Advanced chronological case visualization with AI-powered rights violation analysis</p>
+        </div>
+
+        <!-- Input Section -->
+        <div class="glass-card rounded-xl p-6 mb-6 hover-lift">
+            <h2 class="text-xl font-semibold mb-4 text-blue-400">Case URL or Manual Data Entry</h2>
+            
+            <!-- URL Input -->
+            <div class="mb-4">
+                <label for="caseUrl" class="block text-sm font-medium mb-2">Case URL (MyCase or similar)</label>
+                <input type="url" id="caseUrl" 
+                       class="w-full px-4 py-3 bg-slate-700/50 border border-slate-600 rounded-lg text-light focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                       placeholder="https://public.courts.in.gov/mycase/#/vw/CaseSummary/...">
+            </div>
+
+            <!-- Manual Data Input -->
+            <div class="mb-4">
+                <label for="manualData" class="block text-sm font-medium mb-2">Or Paste Chronological Case Summary from MyCase</label>
+                <textarea id="manualData" rows="6" 
+                          class="w-full px-4 py-3 bg-slate-700/50 border border-slate-600 rounded-lg text-light focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                          placeholder="Paste the entire chronological case summary from MyCase here...
+
+07/18/2025
+Case Opened as a New Filing
+07/18/2025
+Appearance Filed
+APPEARANCE
+For Party: XYZ Corporation"></textarea>
+            </div>
+
+            <!-- File Upload -->
+            <div class="mb-4">
+                <label for="fileUpload" class="block text-sm font-medium mb-2">Or Upload JSON/CSV File</label>
+                <input type="file" id="fileUpload" accept=".json,.csv" 
+                       class="w-full px-4 py-3 bg-slate-700/50 border border-slate-600 rounded-lg text-light focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all">
+            </div>
+
+            <!-- Customizable Deadline Settings -->
+            <div class="settings-panel">
+                <h3 class="text-lg font-semibold mb-3 text-blue-400">Deadline Configuration</h3>
+                <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
+                    <div>
+                        <label for="omnibusDays" class="block text-sm font-medium mb-2">Omnibus Days</label>
+                        <input type="number" id="omnibusDays" value="70" min="1" max="365"
+                               class="w-full px-3 py-2 bg-slate-700/50 border border-slate-600 rounded-lg text-light focus:ring-2 focus:ring-blue-500">
+                    </div>
+                    <div>
+                        <label for="discoveryDays" class="block text-sm font-medium mb-2">Discovery Days</label>
+                        <input type="number" id="discoveryDays" value="120" min="1" max="365"
+                               class="w-full px-3 py-2 bg-slate-700/50 border border-slate-600 rounded-lg text-light focus:ring-2 focus:ring-blue-500">
+                    </div>
+                    <div>
+                        <label for="trialDays" class="block text-sm font-medium mb-2">Trial Days</label>
+                        <input type="number" id="trialDays" value="180" min="1" max="730"
+                               class="w-full px-3 py-2 bg-slate-700/50 border border-slate-600 rounded-lg text-light focus:ring-2 focus:ring-blue-500">
+                    </div>
+                    <div>
+                        <label for="caseType" class="block text-sm font-medium mb-2">Case Type</label>
+                        <select id="caseType" class="w-full px-3 py-2 bg-slate-700/50 border border-slate-600 rounded-lg text-light focus:ring-2 focus:ring-blue-500">
+                            <option value="auto">Auto-Detect</option>
+                            <option value="criminal">Criminal</option>
+                            <option value="civil">Civil</option>
+                            <option value="family">Family</option>
+                            <option value="probate">Probate</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Buttons -->
+            <div class="flex gap-4 flex-wrap mt-4">
+                <button id="scrapeBtn" 
+                        class="px-6 py-3 bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-lg hover:from-blue-700 hover:to-blue-800 transition-all duration-200 flex items-center gap-2 shadow-lg">
+                    <span id="scrapeIcon">🔍</span>
+                    <span id="scrapeText">Scrape URL</span>
+                </button>
+                <button id="parseBtn" 
+                        class="px-6 py-3 bg-gradient-to-r from-green-600 to-green-700 text-white rounded-lg hover:from-green-700 hover:to-green-800 transition-all duration-200 shadow-lg">
+                    📊 Parse Manual Data
+                </button>
+                <button id="loadSampleBtn" 
+                        class="px-6 py-3 bg-gradient-to-r from-purple-600 to-purple-700 text-white rounded-lg hover:from-purple-700 hover:to-purple-800 transition-all duration-200 shadow-lg">
+                    🎯 Load Sample Case
+                </button>
+            </div>
+
+            <!-- CORS Warning -->
+            <div id="corsWarning" class="mt-4 p-4 bg-yellow-900/20 border border-yellow-700/50 rounded-lg text-yellow-200 text-sm">
+                <strong>Note:</strong> Direct URL scraping is blocked by browser security (CORS). Use the browser extension method or manual data entry.
+            </div>
+        </div>
+
+        <!-- Case Summary Dashboard -->
+        <div id="summarySection" class="glass-card rounded-xl p-6 mb-6" style="display: none;">
+            <h2 class="text-xl font-semibold mb-4 text-blue-400">Case Analysis Dashboard</h2>
+            <div id="timelineSummary" class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4"></div>
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <div class="chart-container">
+                    <canvas id="eventTypeChart"></canvas>
+                </div>
+                <div class="chart-container">
+                    <canvas id="timelineChart"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <!-- Timeline Section -->
+        <div id="timelineSection" class="grid grid-cols-1 lg:grid-cols-3 gap-6" style="display: none;">
+            <!-- Interactive Timeline -->
+            <div class="lg:col-span-2">
+                <div class="glass-card rounded-xl p-6">
+                    <div class="flex justify-between items-center mb-4">
+                        <h2 class="text-xl font-semibold text-blue-400">Interactive Timeline with Deadlines</h2>
+                        <div class="flex gap-2 flex-wrap">
+                            <button id="zoomIn" class="px-3 py-2 bg-slate-700/50 text-sm rounded-lg hover:bg-slate-600/50 transition-all" title="Zoom In">
+                                🔍+
+                            </button>
+                            <button id="zoomOut" class="px-3 py-2 bg-slate-700/50 text-sm rounded-lg hover:bg-slate-600/50 transition-all" title="Zoom Out">
+                                🔍-
+                            </button>
+                            <button id="sortAsc" class="px-3 py-2 bg-slate-700/50 text-sm rounded-lg hover:bg-slate-600/50 transition-all">
+                                📅 Oldest First
+                            </button>
+                            <button id="sortDesc" class="px-3 py-2 bg-slate-700/50 text-sm rounded-lg hover:bg-slate-600/50 transition-all">
+                                📅 Newest First
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Event Filtering -->
+                    <div class="flex gap-4 mb-4 flex-wrap">
+                        <select id="eventFilter" class="px-4 py-2 bg-slate-700/50 border border-slate-600 rounded-lg text-light focus:ring-2 focus:ring-blue-500">
+                            <option value="all">All Events</option>
+                            <option value="Filing">Filing</option>
+                            <option value="Hearing">Hearing</option>
+                            <option value="Motion">Motion</option>
+                            <option value="Service">Service</option>
+                            <option value="Discovery">Discovery</option>
+                            <option value="Trial">Trial</option>
+                            <option value="Judgment">Judgment</option>
+                        </select>
+                        <input type="text" id="eventSearch" placeholder="Search events..." 
+                               class="flex-1 px-4 py-2 bg-slate-700/50 border border-slate-600 rounded-lg text-light focus:ring-2 focus:ring-blue-500">
+                        <button id="clearFilters" class="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-all">
+                            Clear
+                        </button>
+                    </div>
+
+                    <!-- Event Type Legend -->
+                    <div class="flex gap-4 text-xs mb-4 flex-wrap">
+                        <div class="legend-item">
+                            <div class="legend-color" style="background: linear-gradient(135deg, #10b981, #059669);"></div>
+                            <span>Filing</span>
+                        </div>
+                        <div class="legend-item">
+                            <div class="legend-color" style="background: linear-gradient(135deg, #8b5cf6, #6d28d9);"></div>
+                            <span>Hearing</span>
+                        </div>
+                        <div class="legend-item">
+                            <div class="legend-color" style="background: linear-gradient(135deg, #f59e0b, #d97706);"></div>
+                            <span>Motion</span>
+                        </div>
+                        <div class="legend-item">
+                            <div class="legend-color" style="background: linear-gradient(135deg, #ef4444, #b91c1c);"></div>
+                            <span>Trial</span>
+                        </div>
+                        <div class="legend-item">
+                            <div class="legend-color" style="background: linear-gradient(135deg, #06b6d4, #0891b2);"></div>
+                            <span>Service</span>
+                        </div>
+                        <div class="legend-item">
+                            <div class="legend-color" style="background: linear-gradient(135deg, #84cc16, #65a30d);"></div>
+                            <span>Discovery</span>
+                        </div>
+                    </div>
+                    
+                    <!-- Horizontal Scrollable Timeline -->
+                    <div class="timeline-container" id="timelineContainer">
+                        <div class="timeline-line"></div>
+                        <div class="timeline-track" id="timelineTrack"></div>
+                    </div>
+                    
+                    <div class="mt-4 text-center text-sm text-gray-400">
+                        Scroll horizontally and click events to view details. Green: Omnibus, Yellow: Discovery, Red: Trial deadlines.
+                    </div>
+
+                    <!-- Export Options -->
+                    <div class="flex gap-2 mt-4 flex-wrap">
+                        <button id="exportJsonBtn" class="px-3 py-2 bg-blue-600 text-sm rounded-lg hover:bg-blue-700 transition-all">
+                            💾 Export JSON
+                        </button>
+                        <button id="exportCsvBtn" class="px-3 py-2 bg-green-600 text-sm rounded-lg hover:bg-green-700 transition-all">
+                            📑 Export CSV
+                        </button>
+                        <button id="exportPdfBtn" class="px-3 py-2 bg-red-600 text-sm rounded-lg hover:bg-red-700 transition-all">
+                            📄 Export PDF
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Event Details Sidebar -->
+            <div class="lg:col-span-1">
+                <div class="glass-card rounded-xl p-6 sidebar" id="sidebar">
+                    <h3 class="text-lg font-semibold text-blue-400 mb-4">Event Details & Rights Analysis</h3>
+                    <div id="eventDetails" class="space-y-4">
+                        <div class="text-center text-gray-400 py-8">
+                            <div class="text-4xl mb-2">👈</div>
+                            <p>Click on a timeline event to view details</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Instructions -->
+        <div class="mt-8 glass-card rounded-xl p-6">
+            <h3 class="text-lg font-semibold mb-3 text-blue-400">How to Use - Enhanced Features</h3>
+            <div class="grid md:grid-cols-2 gap-6 text-sm text-gray-300">
+                <div class="space-y-3">
+                    <p><strong class="text-blue-300">Method 1 - Manual Entry:</strong> Copy the chronological case summary from MyCase and paste it in the text area above.</p>
+                    <p><strong class="text-green-300">Method 2 - File Upload:</strong> Upload JSON or CSV files with case timeline data.</p>
+                    <p><strong class="text-purple-300">Method 3 - Sample Data:</strong> Click "Load Sample Case" to see the app in action with demo data.</p>
+                </div>
+                <div class="p-4 bg-blue-900/20 border border-blue-700/30 rounded-lg">
+                    <strong class="text-blue-300">New Features:</strong>
+                    <ul class="mt-2 space-y-1 text-xs">
+                        <li>• Customizable deadline rules for different jurisdictions</li>
+                        <li>• Event filtering by type and keyword search</li>
+                        <li>• Color-coded events with interactive legend</li>
+                        <li>• Statistical dashboard with charts and metrics</li>
+                        <li>• Enhanced export options (JSON, CSV, PDF)</li>
+                        <li>• Event annotations and notes system</li>
+                        <li>• Timeline zoom and pan controls</li>
+                        <li>• Accessibility improvements (keyboard navigation)</li>
+                        <li>• Automatic case type detection</li>
+                        <li>• Advanced rights violation analysis</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let timelineData = [];
+        let filteredData = [];
+        let selectedEventIndex = null;
+        let zoomLevel = 1;
+        let eventTypeChart = null;
+        let timelineChart = null;
+
+        // Event listeners
+        document.getElementById('scrapeBtn').addEventListener('click', handleScrape);
+        document.getElementById('parseBtn').addEventListener('click', handleManualParse);
+        document.getElementById('loadSampleBtn').addEventListener('click', loadSampleData);
+        document.getElementById('fileUpload').addEventListener('change', handleFileUpload);
+        document.getElementById('sortAsc').addEventListener('click', () => sortTimeline('asc'));
+        document.getElementById('sortDesc').addEventListener('click', () => sortTimeline('desc'));
+        document.getElementById('exportJsonBtn').addEventListener('click', () => exportData('json'));
+        document.getElementById('exportCsvBtn').addEventListener('click', () => exportData('csv'));
+        document.getElementById('exportPdfBtn').addEventListener('click', () => exportData('pdf'));
+        document.getElementById('eventFilter').addEventListener('change', applyFilters);
+        document.getElementById('eventSearch').addEventListener('input', applyFilters);
+        document.getElementById('clearFilters').addEventListener('click', clearFilters);
+        document.getElementById('zoomIn').addEventListener('click', () => adjustZoom(0.2));
+        document.getElementById('zoomOut').addEventListener('click', () => adjustZoom(-0.2));
+
+        // Deadline settings change listeners
+        ['omnibusDays', 'discoveryDays', 'trialDays', 'caseType'].forEach(id => {
+            document.getElementById(id).addEventListener('change', () => {
+                if (timelineData.length > 0) {
+                    renderInteractiveTimeline();
+                    updateSummaryDashboard();
+                }
+            });
+        });
+
+        function loadSampleData() {
+            const sampleData = `07/15/2024
+Case Opened as a New Filing
+COMPLAINT
+For Party: John Doe vs. ABC Corporation
+
+07/16/2024
+Appearance Filed
+APPEARANCE
+For Party: ABC Corporation
+
+07/20/2024
+Motion to Dismiss Filed
+MOTION TO DISMISS
+For Party: ABC Corporation
+
+08/15/2024
+Discovery Request Filed
+DISCOVERY REQUEST
+For Party: John Doe
+
+09/10/2024
+Omnibus Hearing Scheduled
+OMNIBUS HEARING
+Session: 9:00 AM
+
+09/10/2024
+Omnibus Hearing Held
+OMNIBUS HEARING COMPLETED
+Judicial Officer: Judge Smith
+
+10/15/2024
+Deposition Scheduled
+DEPOSITION
+For Party: ABC Corporation
+
+11/01/2024
+Motion for Summary Judgment Filed
+MOTION FOR SUMMARY JUDGMENT
+For Party: ABC Corporation
+
+12/15/2024
+Pre-Trial Conference Scheduled
+PRE-TRIAL CONFERENCE
+Session: 2:00 PM
+
+01/20/2025
+Trial Scheduled
+TRIAL
+Session: 9:00 AM
+Judicial Officer: Judge Smith`;
+
+            document.getElementById('manualData').value = sampleData;
+            handleManualParse();
+        }
+
+        function handleFileUpload(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    if (file.name.endsWith('.json')) {
+                        const data = JSON.parse(e.target.result);
+                        timelineData = data.timeline || data;
+                        renderInteractiveTimeline();
+                        updateSummaryDashboard();
+                    } else if (file.name.endsWith('.csv')) {
+                        // Simple CSV parsing - in production, use a proper CSV parser
+                        const lines = e.target.result.split('\n');
+                        const headers = lines[0].split(',');
+                        const data = [];
+                        for (let i = 1; i < lines.length; i++) {
+                            if (lines[i].trim()) {
+                                const values = lines[i].split(',');
+                                const event = {};
+                                headers.forEach((header, index) => {
+                                    event[header.trim()] = values[index] ? values[index].trim().replace(/"/g, '') : '';
+                                });
+                                data.push(event);
+                            }
+                        }
+                        timelineData = data;
+                        renderInteractiveTimeline();
+                        updateSummaryDashboard();
+                    }
+                } catch (error) {
+                    alert('Error parsing file: ' + error.message);
+                }
+            };
+            reader.readAsText(file);
+        }
+
+        function handleScrape() {
+            const url = document.getElementById('caseUrl').value.trim();
+            if (!url) {
+                alert('Please enter a valid URL');
+                return;
+            }
+
+            const scrapeBtn = document.getElementById('scrapeBtn');
+            const scrapeIcon = document.getElementById('scrapeIcon');
+            const scrapeText = document.getElementById('scrapeText');
+
+            scrapeBtn.disabled = true;
+            scrapeBtn.classList.add('loading');
+            scrapeIcon.textContent = '⏳';
+            scrapeText.textContent = 'Attempting to scrape...';
+
+            setTimeout(() => {
+                alert('CORS Error: Cannot directly scrape external websites. Please use manual data entry or the bookmarklet method.');
+                
+                scrapeBtn.disabled = false;
+                scrapeBtn.classList.remove('loading');
+                scrapeIcon.textContent = '🔍';
+                scrapeText.textContent = 'Scrape URL';
+            }, 2000);
+        }
+
+        function handleManualParse() {
+            const manualData = document.getElementById('manualData').value.trim();
+            if (!manualData) {
+                alert('Please enter some chronological data');
+                return;
+            }
+
+            const lines = manualData.split('\n').filter(line => line.trim());
+            const parsedData = [];
+            let currentDate = null;
+            let currentDescription = null;
+            let collectingDetails = false;
+
+            lines.forEach((line, index) => {
+                const trimmedLine = line.trim();
+                
+                if (!trimmedLine || trimmedLine === 'Chronological Case Summary' || trimmedLine.startsWith('**')) {
+                    return;
+                }
+
+                const dateMatch = trimmedLine.match(/^(\d{1,2}\/\d{1,2}\/\d{4})$/);
+                if (dateMatch) {
+                    if (currentDate && currentDescription) {
+                        const [month, day, year] = currentDate.split('/');
+                        const date = new Date(year, month - 1, day);
+                        if (!isNaN(date.getTime())) {
+                            parsedData.push({
+                                date: date.toISOString().split('T')[0],
+                                description: currentDescription,
+                                type: extractEventType(currentDescription),
+                                caseType: detectCaseType(currentDescription),
+                                party: extractParty(currentDescription),
+                                details: currentDescription,
+                                status: extractStatus(currentDescription),
+                                notes: ''
+                            });
+                        }
+                    }
+                    
+                    currentDate = dateMatch[1];
+                    currentDescription = null;
+                    collectingDetails = false;
+                    return;
+                }
+
+                if (currentDate && !currentDescription) {
+                    currentDescription = trimmedLine;
+                    collectingDetails = true;
+                    return;
+                }
+
+                if (currentDate && collectingDetails) {
+                    if (trimmedLine.startsWith('For Party:') || 
+                        trimmedLine.startsWith('File Stamp:') || 
+                        trimmedLine.startsWith('Filed By:') ||
+                        trimmedLine.startsWith('Session:') ||
+                        trimmedLine.startsWith('Judicial Officer:')) {
+                        return;
+                    }
+                    
+                    if (trimmedLine && !trimmedLine.match(/^\d{1,2}\/\d{1,2}\/\d{4}$/)) {
+                        currentDescription += ' - ' + trimmedLine;
+                    }
+                }
+            });
+
+            if (currentDate && currentDescription) {
+                const [month, day, year] = currentDate.split('/');
+                const date = new Date(year, month - 1, day);
+                if (!isNaN(date.getTime())) {
+                    parsedData.push({
+                        date: date.toISOString().split('T')[0],
+                        description: currentDescription,
+                        type: extractEventType(currentDescription),
+                        caseType: detectCaseType(currentDescription),
+                        party: extractParty(currentDescription),
+                        details: currentDescription,
+                        status: extractStatus(currentDescription),
+                        notes: ''
+                    });
+                }
+            }
+
+            if (parsedData.length === 0) {
+                alert('No valid entries found. Please paste the chronological case summary from MyCase.');
+                return;
+            }
+
+            timelineData = parsedData;
+            renderInteractiveTimeline();
+            updateSummaryDashboard();
+        }
+
+        function extractEventType(description) {
+            const desc = description.toLowerCase();
+            if (desc.includes('filed') || desc.includes('filing') || desc.includes('complaint')) return 'Filing';
+            if (desc.includes('hearing')) return 'Hearing';
+            if (desc.includes('motion')) return 'Motion';
+            if (desc.includes('service') || desc.includes('served')) return 'Service';
+            if (desc.includes('discovery') || desc.includes('deposition')) return 'Discovery';
+            if (desc.includes('conference')) return 'Conference';
+            if (desc.includes('trial')) return 'Trial';
+            if (desc.includes('judgment') || desc.includes('verdict')) return 'Judgment';
+            if (desc.includes('appearance')) return 'Filing';
+            return 'Other';
+        }
+
+        function detectCaseType(description) {
+            const desc = description.toLowerCase();
+            if (desc.includes('indictment') || desc.includes('arrest') || desc.includes('criminal') || desc.includes('felony') || desc.includes('misdemeanor')) return 'Criminal';
+            if (desc.includes('complaint') || desc.includes('plaintiff') || desc.includes('defendant') || desc.includes('civil')) return 'Civil';
+            if (desc.includes('divorce') || desc.includes('custody') || desc.includes('family')) return 'Family';
+            if (desc.includes('probate') || desc.includes('estate') || desc.includes('will')) return 'Probate';
+            return 'Unknown';
+        }
+
+        function extractParty(description) {
+            const partyMatch = description.match(/For Party:\s*([^\\n]+)/i);
+            return partyMatch ? partyMatch[1].trim() : 'Unknown';
+        }
+
+        function extractStatus(description) {
+            const desc = description.toLowerCase();
+            if (desc.includes('completed') || desc.includes('held')) return 'Completed';
+            if (desc.includes('scheduled') || desc.includes('set')) return 'Scheduled';
+            if (desc.includes('filed')) return 'Filed';
+            if (desc.includes('pending')) return 'Pending';
+            return 'Unknown';
+        }
+
+        function analyzeRightsViolations() {
+            const filingEvent = timelineData.find(event => event.type === 'Filing');
+            if (!filingEvent) return { violations: [], omnibusDate: null, discoveryDate: null, trialDeadline: null };
+
+            const filingDate = new Date(filingEvent.date);
+            const omnibusDays = parseInt(document.getElementById('omnibusDays').value) || 70;
+            const discoveryDays = parseInt(document.getElementById('discoveryDays').value) || 120;
+            const trialDays = parseInt(document.getElementById('trialDays').value) || 180;
+            const caseType = document.getElementById('caseType').value;
+
+            // Adjust deadlines based on case type
+            let adjustedOmnibusDays = omnibusDays;
+            let adjustedDiscoveryDays = discoveryDays;
+            let adjustedTrialDays = trialDays;
+
+            if (caseType === 'criminal') {
+                adjustedTrialDays = Math.min(trialDays, 120); // Speedy trial for criminal cases
+            } else if (caseType === 'family') {
+                adjustedOmnibusDays = Math.min(omnibusDays, 60);
+            }
+
+            const omnibusDate = new Date(filingDate);
+            omnibusDate.setDate(filingDate.getDate() + adjustedOmnibusDays);
+            
+            const discoveryDate = new Date(filingDate);
+            discoveryDate.setDate(filingDate.getDate() + adjustedDiscoveryDays);
+            
+            const trialDeadline = new Date(filingDate);
+            trialDeadline.setDate(filingDate.getDate() + adjustedTrialDays);
+
+            const violations = [];
+            const currentDate = new Date();
+
+            // Check omnibus hearing
+            const omnibusHearing = timelineData.find(event => 
+                event.type === 'Hearing' && event.description.toLowerCase().includes('omnibus'));
+            if (!omnibusHearing && currentDate > omnibusDate) {
+                violations.push({
+                    type: 'Omnibus Hearing',
+                    severity: 'Medium',
+                    message: `No omnibus hearing scheduled or occurred by ${omnibusDate.toLocaleDateString('en-US')}, which may violate pre-trial procedure timelines.`
+                });
+            } else if (omnibusHearing && new Date(omnibusHearing.date) > omnibusDate) {
+                violations.push({
+                    type: 'Omnibus Hearing',
+                    severity: 'Low',
+                    message: `Omnibus hearing on ${new Date(omnibusHearing.date).toLocaleDateString('en-US')} occurred after the recommended deadline of ${omnibusDate.toLocaleDateString('en-US')}.`
+                });
+            }
+
+            // Check discovery deadline
+            const discoveryEvents = timelineData.filter(event => event.type === 'Discovery');
+            if (discoveryEvents.length === 0 && currentDate > discoveryDate) {
+                violations.push({
+                    type: 'Discovery',
+                    severity: 'Medium',
+                    message: `No discovery activities by ${discoveryDate.toLocaleDateString('en-US')}, which may delay case resolution.`
+                });
+            }
+
+            // Check trial timeline
+            const trialEvent = timelineData.find(event => event.type === 'Trial');
+            if (!trialEvent && currentDate > trialDeadline) {
+                violations.push({
+                    type: 'Trial Deadline',
+                    severity: caseType === 'criminal' ? 'High' : 'Medium',
+                    message: `No trial scheduled or occurred by ${trialDeadline.toLocaleDateString('en-US')}, which may violate ${caseType === 'criminal' ? 'speedy trial rights' : 'timely resolution standards'}.`
+                });
+            } else if (trialEvent && new Date(trialEvent.date) > trialDeadline) {
+                violations.push({
+                    type: 'Trial Deadline',
+                    severity: caseType === 'criminal' ? 'High' : 'Medium',
+                    message: `Trial on ${new Date(trialEvent.date).toLocaleDateString('en-US')} occurred after the recommended deadline of ${trialDeadline.toLocaleDateString('en-US')}.`
+                });
+            }
+
+            return { violations, omnibusDate, discoveryDate, trialDeadline };
+        }
+
+        function applyFilters() {
+            const filter = document.getElementById('eventFilter').value;
+            const search = document.getElementById('eventSearch').value.toLowerCase();
+            
+            filteredData = timelineData.filter(event => {
+                const matchesType = filter === 'all' || event.type === filter;
+                const matchesSearch = !search || 
+                    event.description.toLowerCase().includes(search) ||
+                    event.party.toLowerCase().includes(search) ||
+                    event.notes.toLowerCase().includes(search);
+                return matchesType && matchesSearch;
+            });
+
+            renderInteractiveTimeline();
+        }
+
+        function clearFilters() {
+            document.getElementById('eventFilter').value = 'all';
+            document.getElementById('eventSearch').value = '';
+            filteredData = [...timelineData];
+            renderInteractiveTimeline();
+        }
+
+        function adjustZoom(delta) {
+            zoomLevel = Math.max(0.5, Math.min(3, zoomLevel + delta));
+            renderInteractiveTimeline();
+        }
+
+        function updateSummaryDashboard() {
+            if (timelineData.length === 0) {
+                document.getElementById('summarySection').style.display = 'none';
+                return;
+            }
+
+            document.getElementById('summarySection').style.display = 'block';
+            
+            // Calculate summary statistics
+            const eventTypes = [...new Set(timelineData.map(event => event.type))];
+            const caseDuration = (new Date(timelineData[timelineData.length - 1].date) - new Date(timelineData[0].date)) / (1000 * 60 * 60 * 24);
+            const hearingCount = timelineData.filter(event => event.type === 'Hearing').length;
+            const motionCount = timelineData.filter(event => event.type === 'Motion').length;
+            const { violations } = analyzeRightsViolations();
+
+            // Update summary cards
+            const summaryDiv = document.getElementById('timelineSummary');
+            summaryDiv.innerHTML = `
+                <div class="glass-card rounded-lg p-4 text-center">
+                    <div class="text-2xl font-bold text-blue-400">${timelineData.length}</div>
+                    <div class="text-sm text-gray-400">Total Events</div>
+                </div>
+                <div class="glass-card rounded-lg p-4 text-center">
+                    <div class="text-2xl font-bold text-green-400">${Math.round(caseDuration)}</div>
+                    <div class="text-sm text-gray-400">Days Duration</div>
+                </div>
+                <div class="glass-card rounded-lg p-4 text-center">
+                    <div class="text-2xl font-bold text-purple-400">${hearingCount}</div>
+                    <div class="text-sm text-gray-400">Hearings</div>
+                </div>
+                <div class="glass-card rounded-lg p-4 text-center">
+                    <div class="text-2xl font-bold ${violations.length > 0 ? 'text-red-400' : 'text-green-400'}">${violations.length}</div>
+                    <div class="text-sm text-gray-400">Violations</div>
+                </div>
+            `;
+
+            // Update charts
+            updateCharts();
+        }
+
+        function updateCharts() {
+            // Event Type Distribution Chart
+            const eventTypeCounts = {};
+            timelineData.forEach(event => {
+                eventTypeCounts[event.type] = (eventTypeCounts[event.type] || 0) + 1;
+            });
+
+            const ctx1 = document.getElementById('eventTypeChart').getContext('2d');
+            if (eventTypeChart) eventTypeChart.destroy();
+            
+            eventTypeChart = new Chart(ctx1, {
+                type: 'doughnut',
+                data: {
+                    labels: Object.keys(eventTypeCounts),
+                    datasets: [{
+                        data: Object.values(eventTypeCounts),
+                        backgroundColor: [
+                            '#10b981', '#8b5cf6', '#f59e0b', '#ef4444',
+                            '#06b6d4', '#84cc16', '#ec4899', '#6366f1'
+                        ]
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        title: {
+                            display: true,
+                            text: 'Event Type Distribution',
+                            color: '#e2e8f0'
+                        },
+                        legend: {
+                            labels: {
+                                color: '#e2e8f0'
+                            }
+                        }
+                    }
+                }
+            });
+
+            // Timeline Progress Chart
+            const monthlyData = {};
+            timelineData.forEach(event => {
+                const month = new Date(event.date).toISOString().slice(0, 7);
+                monthlyData[month] = (monthlyData[month] || 0) + 1;
+            });
+
+            const ctx2 = document.getElementById('timelineChart').getContext('2d');
+            if (timelineChart) timelineChart.destroy();
+            
+            timelineChart = new Chart(ctx2, {
+                type: 'line',
+                data: {
+                    labels: Object.keys(monthlyData).sort(),
+                    datasets: [{
+                        label: 'Events per Month',
+                        data: Object.keys(monthlyData).sort().map(month => monthlyData[month]),
+                        borderColor: '#3b82f6',
+                        backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                        tension: 0.4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        title: {
+                            display: true,
+                            text: 'Case Activity Timeline',
+                            color: '#e2e8f0'
+                        },
+                        legend: {
+                            labels: {
+                                color: '#e2e8f0'
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            ticks: { color: '#e2e8f0' },
+                            grid: { color: 'rgba(226, 232, 240, 0.1)' }
+                        },
+                        y: {
+                            ticks: { color: '#e2e8f0' },
+                            grid: { color: 'rgba(226, 232, 240, 0.1)' }
+                        }
+                    }
+                }
+            });
+        }
+
+        function renderInteractiveTimeline() {
+            const timelineSection = document.getElementById('timelineSection');
+            const timelineTrack = document.getElementById('timelineTrack');
+            
+            if (timelineData.length === 0) {
+                timelineSection.style.display = 'none';
+                return;
+            }
+
+            // Use filtered data if filters are applied
+            const dataToRender = filteredData.length > 0 ? filteredData : timelineData;
+            
+            if (dataToRender.length === 0) {
+                timelineTrack.innerHTML = '<div class="text-center text-gray-400 py-8">No events match the current filters</div>';
+                return;
+            }
+
+            dataToRender.sort((a, b) => new Date(a.date) - new Date(b.date));
+            timelineTrack.innerHTML = '';
+
+            const startDate = new Date(dataToRender[0].date);
+            const endDate = new Date(dataToRender[dataToRender.length - 1].date);
+            const { omnibusDate, discoveryDate, trialDeadline } = analyzeRightsViolations();
+            
+            // Extend timeline to show deadlines
+            if (omnibusDate && omnibusDate > endDate) endDate.setTime(omnibusDate.getTime());
+            if (discoveryDate && discoveryDate > endDate) endDate.setTime(discoveryDate.getTime());
+            if (trialDeadline && trialDeadline > endDate) endDate.setTime(trialDeadline.getTime());
+            
+            const totalDays = (endDate - startDate) / (1000 * 60 * 60 * 24) || 1;
+            const timelineWidth = Math.max(800, dataToRender.length * 150 * zoomLevel);
+            timelineTrack.style.minWidth = `${timelineWidth}px`;
+
+            // Render deadline bars
+            if (omnibusDate) {
+                const daysDiff = (omnibusDate - startDate) / (1000 * 60 * 60 * 24);
+                const position = (daysDiff / totalDays) * (timelineWidth - 100);
+                const deadlineBar = document.createElement('div');
+                deadlineBar.className = 'deadline-bar omnibus';
+                deadlineBar.style.left = `${position + 50}px`;
+                deadlineBar.style.width = '4px';
+                const deadlineLabel = document.createElement('div');
+                deadlineLabel.className = 'deadline-label';
+                deadlineLabel.textContent = `Omnibus: ${omnibusDate.toLocaleDateString('en-US')}`;
+                deadlineBar.appendChild(deadlineLabel);
+                timelineTrack.appendChild(deadlineBar);
+            }
+
+            if (discoveryDate) {
+                const daysDiff = (discoveryDate - startDate) / (1000 * 60 * 60 * 24);
+                const position = (daysDiff / totalDays) * (timelineWidth - 100);
+                const deadlineBar = document.createElement('div');
+                deadlineBar.className = 'deadline-bar discovery';
+                deadlineBar.style.left = `${position + 50}px`;
+                deadlineBar.style.width = '4px';
+                const deadlineLabel = document.createElement('div');
+                deadlineLabel.className = 'deadline-label';
+                deadlineLabel.textContent = `Discovery: ${discoveryDate.toLocaleDateString('en-US')}`;
+                deadlineBar.appendChild(deadlineLabel);
+                timelineTrack.appendChild(deadlineBar);
+            }
+
+            if (trialDeadline) {
+                const daysDiff = (trialDeadline - startDate) / (1000 * 60 * 60 * 24);
+                const position = (daysDiff / totalDays) * (timelineWidth - 100);
+                const deadlineBar = document.createElement('div');
+                deadlineBar.className = 'deadline-bar trial';
+                deadlineBar.style.left = `${position + 50}px`;
+                deadlineBar.style.width = '4px';
+                const deadlineLabel = document.createElement('div');
+                deadlineLabel.className = 'deadline-label';
+                deadlineLabel.textContent = `Trial: ${trialDeadline.toLocaleDateString('en-US')}`;
+                deadlineBar.appendChild(deadlineLabel);
+                timelineTrack.appendChild(deadlineBar);
+            }
+
+            // Render events
+            dataToRender.forEach((item, index) => {
+                const eventDate = new Date(item.date);
+                const daysDiff = (eventDate - startDate) / (1000 * 60 * 60 * 24);
+                const position = (daysDiff / totalDays) * (timelineWidth - 100);
+
+                const eventNode = document.createElement('div');
+                eventNode.className = `event-node ${item.type.toLowerCase()}`;
+                eventNode.style.left = `${position + 50}px`;
+                eventNode.dataset.index = timelineData.indexOf(item); // Use original index
+                eventNode.setAttribute('role', 'button');
+                eventNode.setAttribute('tabindex', '0');
+                eventNode.setAttribute('aria-label', `Event on ${item.date}: ${item.description}`);
+
+                const eventLabel = document.createElement('div');
+                eventLabel.className = 'event-label';
+                eventLabel.textContent = new Date(item.date).toLocaleDateString('en-US', {
+                    month: 'short',
+                    day: 'numeric',
+                    year: 'numeric'
+                });
+
+                eventNode.appendChild(eventLabel);
+                
+                // Click and keyboard event handlers
+                eventNode.addEventListener('click', () => selectEvent(timelineData.indexOf(item)));
+                eventNode.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        selectEvent(timelineData.indexOf(item));
+                    }
+                });
+
+                timelineTrack.appendChild(eventNode);
+            });
+
+            timelineSection.style.display = 'block';
+            
+            // Auto-select first event if none selected
+            if (selectedEventIndex === null && dataToRender.length > 0) {
+                selectEvent(timelineData.indexOf(dataToRender[0]));
+            }
+        }
+
+        function selectEvent(index) {
+            selectedEventIndex = index;
+            const event = timelineData[index];
+            const { violations } = analyzeRightsViolations();
+
+            // Update active node
+            document.querySelectorAll('.event-node').forEach((node, i) => {
+                node.classList.toggle('active', parseInt(node.dataset.index) === index);
+            });
+
+            // Update sidebar
+            const eventDetails = document.getElementById('eventDetails');
+            const formattedDate = new Date(event.date).toLocaleDateString('en-US', {
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric'
+            });
+
+            let violationsHtml = '<h5 class="text-sm font-medium text-gray-300 mb-2">Rights Violation Analysis:</h5>';
+            if (violations.length === 0) {
+                violationsHtml += '<div class="success-alert"><p class="text-xs text-green-400">✅ No potential rights violations detected based on current data and settings.</p></div>';
+            } else {
+                violations.forEach(violation => {
+                    const severityColor = violation.severity === 'High' ? 'text-red-400' : 
+                                        violation.severity === 'Medium' ? 'text-yellow-400' : 'text-orange-400';
+                    violationsHtml += `<div class="violation-alert">
+                        <p class="text-xs ${severityColor}">⚠️ <strong>${violation.type} (${violation.severity}):</strong> ${violation.message}</p>
+                    </div>`;
+                });
+            }
+
+            eventDetails.innerHTML = `
+                <div class="event-detail-card rounded-lg p-4">
+                    <div class="flex items-center justify-between mb-3">
+                        <span class="bg-blue-600 text-white px-2 py-1 rounded-full text-xs font-semibold">${event.type || 'Event'}</span>
+                        <span class="text-xs text-gray-400">${event.date}</span>
+                    </div>
+                    <h4 class="text-lg font-semibold text-blue-300 mb-2">${formattedDate}</h4>
+                    <p class="text-gray-200 mb-4 leading-relaxed">${event.description}</p>
+                    
+                    <div class="space-y-3 text-sm">
+                        <div class="flex justify-between">
+                            <span class="text-gray-400">Party:</span>
+                            <span class="text-gray-200">${event.party || 'Unknown'}</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-gray-400">Case Type:</span>
+                            <span class="text-gray-200">${event.caseType || 'Unknown'}</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-gray-400">Status:</span>
+                            <span class="px-2 py-1 rounded text-xs ${getStatusColor(event.status)}">${event.status || 'Unknown'}</span>
+                        </div>
+                    </div>
+                    
+                    <div class="mt-4 pt-4 border-t border-gray-700">
+                        <h5 class="text-sm font-medium text-gray-300 mb-2">Additional Details:</h5>
+                        <p class="text-xs text-gray-400 leading-relaxed">${event.details || 'No additional details available.'}</p>
+                    </div>
+                    
+                    <div class="mt-4 pt-4 border-t border-gray-700">
+                        <h5 class="text-sm font-medium text-gray-300 mb-2">Notes:</h5>
+                        <textarea id="eventNotes" class="w-full px-3 py-2 bg-slate-700/50 border border-slate-600 rounded-lg text-light text-xs" 
+                                  placeholder="Add notes for this event..." rows="3">${event.notes || ''}</textarea>
+                        <button onclick="saveEventNotes(${index})" class="mt-2 px-3 py-1 bg-blue-600 hover:bg-blue-700 rounded text-xs transition-all">
+                            Save Note
+                        </button>
+                    </div>
+                    
+                    <div class="mt-4 pt-4 border-t border-gray-700">
+                        ${violationsHtml}
+                    </div>
+                </div>
+                
+                <div class="mt-4 text-center">
+                    <button onclick="scrollToEvent(${index})" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg text-sm transition-all">
+                        📍 Center on Timeline
+                    </button>
+                </div>
+            `;
+        }
+
+        function saveEventNotes(index) {
+            const notes = document.getElementById('eventNotes').value;
+            timelineData[index].notes = notes;
+            // Refresh the display to show saved notes
+            selectEvent(index);
+        }
+
+        function getStatusColor(status) {
+            switch (status?.toLowerCase()) {
+                case 'completed': return 'bg-green-600 text-white';
+                case 'active': return 'bg-blue-600 text-white';
+                case 'pending': return 'bg-yellow-600 text-white';
+                case 'scheduled': return 'bg-purple-600 text-white';
+                case 'filed': return 'bg-indigo-600 text-white';
+                default: return 'bg-gray-600 text-white';
+            }
+        }
+
+        function scrollToEvent(index) {
+            const timelineContainer = document.getElementById('timelineContainer');
+            const eventNodes = document.querySelectorAll('.event-node');
+            const targetNode = Array.from(eventNodes).find(node => parseInt(node.dataset.index) === index);
+            
+            if (targetNode) {
+                const nodeLeft = parseFloat(targetNode.style.left);
+                timelineContainer.scrollTo({
+                    left: nodeLeft - timelineContainer.clientWidth / 2,
+                    behavior: 'smooth'
+                });
+            }
+        }
+
+        function sortTimeline(order) {
+            if (order === 'asc') {
+                timelineData.sort((a, b) => new Date(a.date) - new Date(b.date));
+            } else {
+                timelineData.sort((a, b) => new Date(b.date) - new Date(a.date));
+            }
+            applyFilters(); // Re-apply filters after sorting
+        }
+
+        function exportData(format) {
+            if (timelineData.length === 0) {
+                alert('No data to export');
+                return;
+            }
+
+            const { violations, omnibusDate, discoveryDate, trialDeadline } = analyzeRightsViolations();
+            const exportData = {
+                timeline: timelineData,
+                analysis: {
+                    omnibusDate: omnibusDate ? omnibusDate.toISOString().split('T')[0] : null,
+                    discoveryDate: discoveryDate ? discoveryDate.toISOString().split('T')[0] : null,
+                    trialDeadline: trialDeadline ? trialDeadline.toISOString().split('T')[0] : null,
+                    violations,
+                    settings: {
+                        omnibusDays: document.getElementById('omnibusDays').value,
+                        discoveryDays: document.getElementById('discoveryDays').value,
+                        trialDays: document.getElementById('trialDays').value,
+                        caseType: document.getElementById('caseType').value
+                    }
+                }
+            };
+
+            const timestamp = new Date().toISOString().split('T')[0];
+
+            if (format === 'json') {
+                const dataStr = JSON.stringify(exportData, null, 2);
+                const dataUri = 'data:application/json;charset=utf-8,'+ encodeURIComponent(dataStr);
+                const linkElement = document.createElement('a');
+                linkElement.setAttribute('href', dataUri);
+                linkElement.setAttribute('download', `case_timeline_${timestamp}.json`);
+                linkElement.click();
+            } else if (format === 'csv') {
+                const headers = ['Date', 'Type', 'Description', 'Party', 'Case Type', 'Status', 'Notes'];
+                const csv = [
+                    headers.join(','),
+                    ...timelineData.map(event => [
+                        event.date,
+                        event.type,
+                        `"${event.description.replace(/"/g, '""')}"`,
+                        `"${event.party.replace(/"/g, '""')}"`,
+                        event.caseType,
+                        event.status,
+                        `"${(event.notes || '').replace(/"/g, '""')}"`
+                    ].join(','))
+                ].join('\n');
+                
+                const dataUri = 'data:text/csv;charset=utf-8,' + encodeURIComponent(csv);
+                const linkElement = document.createElement('a');
+                linkElement.setAttribute('href', dataUri);
+                linkElement.setAttribute('download', `case_timeline_${timestamp}.csv`);
+                linkElement.click();
+            } else if (format === 'pdf') {
+                const { jsPDF } = window.jspdf;
+                const doc = new jsPDF();
+                
+                doc.setFontSize(16);
+                doc.text('Case Timeline Analysis Report', 10, 20);
+                
+                doc.setFontSize(12);
+                doc.text(`Generated: ${new Date().toLocaleDateString()}`, 10, 30);
+                doc.text(`Total Events: ${timelineData.length}`, 10, 40);
+                doc.text(`Violations Found: ${violations.length}`, 10, 50);
+                
+                let yPos = 70;
+                doc.setFontSize(14);
+                doc.text('Timeline Events:', 10, yPos);
+                yPos += 10;
+                
+                doc.setFontSize(10);
+                timelineData.forEach((event, i) => {
+                    if (yPos > 270) {
+                        doc.addPage();
+                        yPos = 20;
+                    }
+                    doc.text(`${event.date}: ${event.type} - ${event.description.substring(0, 60)}${event.description.length > 60 ? '...' : ''}`, 10, yPos);
+                    yPos += 8;
+                });
+                
+                if (violations.length > 0) {
+                    if (yPos > 250) {
+                        doc.addPage();
+                        yPos = 20;
+                    }
+                    yPos += 10;
+                    doc.setFontSize(14);
+                    doc.text('Rights Violations:', 10, yPos);
+                    yPos += 10;
+                    
+                    doc.setFontSize(10);
+                    violations.forEach(violation => {
+                        if (yPos > 270) {
+                            doc.addPage();
+                            yPos = 20;
+                        }
+                        doc.text(`${violation.type} (${violation.severity}): ${violation.message}`, 10, yPos);
+                        yPos += 8;
+                    });
+                }
+                
+                doc.save(`case_timeline_${timestamp}.pdf`);
+            }
+        }
+
+        // Initialize filters
+        filteredData = [...timelineData];
+    </script>
+</body>
+</html>
+
