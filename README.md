@@ -1,4 +1,5 @@
-# Enhanced Case Timeline Scraper v2.0
+# Enhanced Case Timeline Scraper v2.0 <img alt="Static Badge" src="https://img.shields.io/badge/Status-IN_DEVELOPMENT-red">
+
 
 ## Overview
 
